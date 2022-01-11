@@ -5,7 +5,7 @@ import sys
 spark = SparkSession.builder.getOrCreate()
 sc = SparkContext.getOrCreate()
 
-def orcOrParquet(user, database, table, hdfsPath):
+def orcOrParquet(user, userR, database, table, hdfsPath):
     # Define se a tabela é orc ou parquet
     orcInputFormat = "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat"
     parquetInputFormat = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat"
@@ -16,9 +16,9 @@ def orcOrParquet(user, database, table, hdfsPath):
 
     # Condicional que verifica o formato da tabela e chama a funcao correspondente
     if dfDict["InputFormat"] == orcInputFormat:
-        concatOrc(hdfsPath, user)
+        concatOrc(hdfsPath, userR)
     elif dfDict["InputFormat"] == parquetInputFormat:
-        concatParquet(hdfsPath, user)
+        concatParquet(hdfsPath, userR)
     
 def concatParquet(hdfsPath, user):
     # Usa a funcao coalesce() para concatenar os arquivos
@@ -36,8 +36,9 @@ def concatOrc(hdfsPath, user):
 args = sys.argv
 
 user = args[1]
-database = args[2]
-full = bool(args[3])
+userR = args[2]
+database = args[3]
+full = bool(args[4])
 
 # Query para coletar as tabelas do db
 tablesDF = spark.sql("show tables in {}".format(database))
@@ -46,23 +47,25 @@ tablesList = tablesDF.toPandas()['tableName'].to_list()
 
 # Loop para percorrer todas as tabelas do db
 for table in tablesList:
-    # Coleta as particoes de cada tabela
-    partitionsDF = spark.sql("show partitions {0}.{1}".format(database, table))
-    
-    # Converte o df resultante em list com os nomes das particoes da tabela
-    partitionsList = partitionsDF.toPandas()['partition'].to_list()
+    if "konkatenator" in table:
+        # Coleta as particoes de cada tabela
+        partitionsDF = spark.sql("show partitions {0}.{1}".format(database, table))
+        
+        # Converte o df resultante em list com os nomes das particoes da tabela
+        partitionsList = partitionsDF.toPandas()['partition'].to_list()
 
-    # Caso deseje realizar full será rodado para todas as particoes, caso contrario apenas para as 3 ultimas
-    if not full:
-        partitionsList = partitionsList[-3:]
-    
-    # Para cada particao
-    for partition in partitionsList:
-        # Monta caminho HDFS
-        hdfsPath = "/user/{0}/warehouse/{1}.db/{2}/{3}/".format(user, database, table, partition)
-        try:
-            # Chama a funcao que captura o file format da tabela
-            orcOrParquet(user, database, table, hdfsPath)
-        except Exception as e:
-            print("Falha ao concatenar {0}".format(hdfsPath))
-            print(e)
+        # Caso deseje realizar full será rodado para todas as particoes, caso contrario apenas para as 3 ultimas
+        if not full:
+            partitionsList = partitionsList[-3:]
+        
+        # Para cada particao
+        for partition in partitionsList:
+            # Monta caminho HDFS
+            hdfsPath = "/user/{0}/warehouse/{1}.db/{2}/{3}/".format(user, database, table, partition)
+            try:
+                # Chama a funcao que captura o file format da tabela
+                orcOrParquet(user, userR, database, table, hdfsPath)
+            except Exception as e:
+                print("Falha ao concatenar {0}".format(hdfsPath))
+                print(e)
+    else: continue
